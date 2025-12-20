@@ -240,7 +240,7 @@ class LavalinkConnectionManager {
         this.state.isInitialized = true;
         this.state.hasHadSuccessfulConnection = true;
         
-        // Mark the current node as working and save it
+        // Mark the current node as working and save it (this logs the connection)
         this.nodeProvider.markCurrentNodeWorking();
         
         // Clear any pending reconnection timers
@@ -269,6 +269,8 @@ class LavalinkConnectionManager {
         const errorMsg = error?.message || error?.toString() || '';
         const errorCode = error?.code || '';
         
+        console.error(`Lavalink error: ${errorMsg}`);
+        
         // Check for authentication errors - these should trigger node switch
         const isAuthError = errorMsg.includes('401') || 
                            errorMsg.includes('403') || 
@@ -296,6 +298,8 @@ class LavalinkConnectionManager {
         }
         
         const reasonStr = reason?.reason || reason?.toString() || 'Unknown';
+        
+        console.log(`Lavalink disconnected: ${reasonStr}`);
         
         // Check if this was an auth-related disconnect (code 4001 is common for auth)
         const isAuthDisconnect = reason?.code === 4001 || 

@@ -84,6 +84,14 @@ client.lavalink.nodeManager.on('disconnect', (node, reason) => {
 });
 
 client.lavalink.on("trackStart", (player, track) => {
+    // Log track start with server and track info
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track.info?.title || 'Unknown';
+    const trackAuthor = track.info?.author || 'Unknown';
+    const trackUri = track.info?.uri || '';
+    console.log(`[Music] Playing in "${guildName}" (${player.guildId}) | Channel: ${player.voiceChannelId} | ${trackTitle} by ${trackAuthor} | ${trackUri}`);
+    
     // Update player UI
     client.playerController.updatePlayer(player.guildId);
     
@@ -97,6 +105,12 @@ client.lavalink.on("trackStart", (player, track) => {
 
 client.lavalink.on("trackEnd", (player, track, reason) => {
     if (reason === "replaced") return; // Track was replaced, new one will start
+    
+    // Log track end
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track?.info?.title || 'Unknown';
+    console.log(`[Music] Ended in "${guildName}" (${player.guildId}) | ${trackTitle} | Reason: ${reason}`);
     
     // Update player UI
     setTimeout(() => {
@@ -113,15 +127,26 @@ client.lavalink.on("trackEnd", (player, track, reason) => {
 });
 
 client.lavalink.on("trackError", (player, track, error) => {
-    console.error(`Track error: ${track?.info?.title}`, error?.message || error);
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track?.info?.title || 'Unknown';
+    const trackUri = track?.info?.uri || '';
+    console.error(`[Music] Error in "${guildName}" (${player.guildId}) | ${trackTitle} | ${trackUri} | Error: ${error?.message || error}`);
 });
 
 client.lavalink.on("trackStuck", (player, track, threshold) => {
-    console.warn(`Track stuck: ${track?.info?.title} - Threshold: ${threshold}ms`);
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track?.info?.title || 'Unknown';
+    console.warn(`[Music] Stuck in "${guildName}" (${player.guildId}) | ${trackTitle} | Threshold: ${threshold}ms`);
 });
 
 client.lavalink.on("queueEnd", (player) => {
     const guildId = player.guildId;
+    const guild = client.guilds.cache.get(guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    console.log(`[Music] Queue ended in "${guildName}" (${guildId})`);
+    
     const playerMessage = client.playerController.playerMessages.get(guildId);
     if (playerMessage) {
         const textChannel = client.channels.cache.get(playerMessage.channelId);

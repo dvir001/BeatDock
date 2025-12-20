@@ -206,10 +206,12 @@ class LavalinkNodeProvider {
         if (this.currentNode) {
             const nodeKey = `${this.currentNode.host}:${this.currentNode.port}`;
             this.failedNodes.add(nodeKey);
+            console.log(`Lavalink node failed: ${nodeKey}`);
         }
 
         // Refresh nodes if we have none or too many failed
         if (this.nodes.length === 0 || this.failedNodes.size >= this.nodes.length) {
+            console.log('Refreshing Lavalink node list...');
             this.failedNodes.clear(); // Reset failed nodes
             this.lastFetchTime = 0; // Force refresh
             await this.fetchNodes();
@@ -223,17 +225,20 @@ class LavalinkNodeProvider {
             if (!this.failedNodes.has(nodeKey)) {
                 this.currentNode = node;
                 this.currentNodeIndex = i;
+                console.log(`Trying Lavalink node: ${nodeKey}`);
                 return this.formatNodeConfig(node);
             }
         }
 
         // If all nodes failed, clear failed list and try again
+        console.log('All nodes failed, resetting list...');
         this.failedNodes.clear();
         
         if (this.nodes.length > 0) {
             const node = this.nodes[0];
             this.currentNode = node;
             this.currentNodeIndex = 0;
+            console.log(`Retrying first node: ${node.host}:${node.port}`);
             return this.formatNodeConfig(node);
         }
 
@@ -249,6 +254,7 @@ class LavalinkNodeProvider {
             const nodeKey = `${this.currentNode.host}:${this.currentNode.port}`;
             this.failedNodes.delete(nodeKey);
             this.saveNode(this.currentNode);
+            console.log(`Lavalink node connected: ${nodeKey}`);
         }
     }
 

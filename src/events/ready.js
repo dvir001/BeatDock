@@ -20,7 +20,6 @@ module.exports = {
             if (connected) {
                 // Re-initialize to properly set the 'initiated' flag now that we have a connected node
                 await client.lavalink.init({ ...client.user });
-                console.log('Lavalink connected successfully');
             }
             
         } catch (error) {
@@ -55,7 +54,7 @@ async function fastConnectToNode(client, provider) {
             const connected = await attemptConnection(client, nodeConfig, connectionTimeout);
             
             if (connected) {
-                provider.markCurrentNodeWorking();
+                // Note: markCurrentNodeWorking() is called by LavalinkConnectionManager.onConnect()
                 return true;
             }
         } catch (error) {
