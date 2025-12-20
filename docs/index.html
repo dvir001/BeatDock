@@ -134,7 +134,7 @@
                             <i class="fas fa-headphones-alt"></i>
                         </div>
                         <h4>High-Quality Audio</h4>
-                        <p>Powered by Lavalink for crystal-clear music playback with minimal latency and robust connection management</p>
+                        <p>Powered by Lavalink with auto-discovery from lavalink-list API and automatic failover to ensure reliable playback</p>
                     </div>
                 </div>
                 
@@ -582,11 +582,6 @@ cp .env.example .env
 TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_discord_client_id_here
 
-# Lavalink Configuration
-LAVALINK_HOST=lavalink
-LAVALINK_PORT=2333
-LAVALINK_PASSWORD=youshallnotpass
-
 # Optional: Spotify Integration
 SPOTIFY_ENABLED=false
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
@@ -631,9 +626,9 @@ ALLOWED_ROLES=</code></pre>
                             <div class="step-number">4</div>
                             <div class="step-content">
                                 <h4><i class="fas fa-rocket me-2"></i>Start BeatDock</h4>
-                                <p>Launch the bot and Lavalink server with Docker Compose</p>
+                                <p>Launch the bot with Docker Compose (Lavalink nodes are automatically fetched)</p>
                                 <div class="code-block">
-                                    <pre><code># Start all services
+                                    <pre><code># Start the bot
 docker compose up -d
 
 # View logs (optional)
@@ -644,7 +639,7 @@ docker compose logs -f</code></pre>
                                 </div>
                                 <div class="alert alert-success mt-3">
                                     <i class="fas fa-check-circle me-2"></i>
-                                    BeatDock is now running! The bot will automatically connect to your Discord server.
+                                    BeatDock is now running! Lavalink nodes are automatically managed - no configuration needed.
                                 </div>
                             </div>
                         </div>
@@ -879,11 +874,6 @@ docker compose logs -f</code></pre>
 <span class="variable">TOKEN</span>=<span class="value">your_discord_bot_token_here</span>
 <span class="variable">CLIENT_ID</span>=<span class="value">123456789012345678</span>
 
-<span class="comment"># Lavalink Configuration (Required for Docker setup)</span>
-<span class="variable">LAVALINK_HOST</span>=<span class="value">lavalink</span>
-<span class="variable">LAVALINK_PORT</span>=<span class="value">2333</span>
-<span class="variable">LAVALINK_PASSWORD</span>=<span class="value">youshallnotpass</span>
-
 <span class="comment"># Optional: Spotify Integration</span>
 <span class="variable">SPOTIFY_ENABLED</span>=<span class="value">false</span>
 <span class="variable">SPOTIFY_CLIENT_ID</span>=<span class="value">your_spotify_client_id_here</span>
@@ -896,6 +886,7 @@ docker compose logs -f</code></pre>
 <span class="variable">DEFAULT_VOLUME</span>=<span class="value">80</span>
 <span class="variable">ALLOWED_ROLES</span>=<span class="value"></span>
 
+<span class="comment"># Note: Lavalink nodes are automatically fetched from lavalink-list API</span>
 <span class="comment"># Optional: Advanced Lavalink Reconnection Settings</span>
 <span class="variable">LAVALINK_MAX_RECONNECT_ATTEMPTS</span>=<span class="value">10</span>
 <span class="variable">LAVALINK_BASE_DELAY_MS</span>=<span class="value">1000</span>

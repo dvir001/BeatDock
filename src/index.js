@@ -4,6 +4,7 @@ const { LavalinkManager } = require('lavalink-client');
 const LanguageManager = require('./LanguageManager');
 const PlayerController = require('./utils/PlayerController');
 const LavalinkConnectionManager = require('./utils/LavalinkConnectionManager');
+const nodeProvider = require('./utils/LavalinkNodeProvider');
 const searchSessions = require('./utils/searchSessions');
 const loadCommands = require('./handlers/commandHandler');
 const registerEvents = require('./handlers/eventHandler');
@@ -48,17 +49,9 @@ client.updatePresence = function() {
     }
 };
 
+// Create LavalinkManager with empty nodes - will be populated by node provider
 client.lavalink = new LavalinkManager({
-    nodes: [
-        {
-            host: process.env.LAVALINK_HOST,
-            port: parseInt(process.env.LAVALINK_PORT),
-            authorization: process.env.LAVALINK_PASSWORD,
-            id: "main-node",
-            reconnectTimeout: 10000,
-            reconnectTries: 3,
-        },
-    ],
+    nodes: [], // Nodes will be added dynamically by the node provider
     sendToShard: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
         if (guild) guild.shard.send(payload);
@@ -71,13 +64,11 @@ client.lavalink = new LavalinkManager({
             destroyAfterMs: parseInt(process.env.QUEUE_EMPTY_DESTROY_MS || "30000", 10),
         }
     },
+
 });
 
 // Initialize connection manager
 client.lavalinkConnectionManager = new LavalinkConnectionManager(client);
-
-// Initialize the connection manager immediately - it will monitor for Lavalink availability
-client.lavalinkConnectionManager.initialize();
 
 // Lavalink NodeManager events
 client.lavalink.nodeManager.on('connect', (node) => {
@@ -92,7 +83,6 @@ client.lavalink.nodeManager.on('disconnect', (node, reason) => {
     client.lavalinkConnectionManager.onDisconnect(node, reason);
 });
 
-// Lavalink events
 client.lavalink.on("trackStart", (player, track) => {
     // Update player UI
     client.playerController.updatePlayer(player.guildId);
@@ -120,6 +110,14 @@ client.lavalink.on("trackEnd", (player, track, reason) => {
             client.updatePresence();
         }
     }, 500);
+});
+
+client.lavalink.on("trackError", (player, track, error) => {
+    console.error(`Track error: ${track?.info?.title}`, error?.message || error);
+});
+
+client.lavalink.on("trackStuck", (player, track, threshold) => {
+    console.warn(`Track stuck: ${track?.info?.title} - Threshold: ${threshold}ms`);
 });
 
 client.lavalink.on("queueEnd", (player) => {

@@ -28,7 +28,7 @@
 - 🎧 **Optional Spotify Integration** – Smart track resolution with ISRC matching for accurate results
 - 🔄 **Advanced Queue Management** – Loop modes, shuffle, history navigation, and queue manipulation
 - 🔊 **Volume Control** – Per-server volume control with validation and persistence
-- ⚙️ **Robust Connection Management** – Advanced Lavalink reconnection with exponential backoff
+- ⚙️ **Automatic Lavalink Management** – Auto-discovers Lavalink nodes from [lavalink-list](https://github.com/DarrenOfficial/lavalink-list) with automatic failover
 
 ## 🔒 Prerequisites
 
@@ -80,11 +80,6 @@ Edit `.env` with your bot credentials:
 TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_discord_client_id_here
 
-# Lavalink Configuration (Required for Docker setup)
-LAVALINK_HOST=lavalink
-LAVALINK_PORT=2333
-LAVALINK_PASSWORD=youshallnotpass
-
 # Optional: Spotify Integration
 SPOTIFY_ENABLED=false
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
@@ -92,26 +87,19 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
 
 # Optional: Additional Settings
 DEFAULT_LANGUAGE=en
-QUEUE_EMPTY_DESTROY_MS=30000
-EMPTY_CHANNEL_DESTROY_MS=60000
 DEFAULT_VOLUME=80
 ALLOWED_ROLES=
-
-# Optional: Lavalink Reconnection Settings
-LAVALINK_MAX_RECONNECT_ATTEMPTS=10
-LAVALINK_BASE_DELAY_MS=1000
-LAVALINK_MAX_DELAY_MS=30000
-LAVALINK_HEALTH_CHECK_INTERVAL_MS=30000
-LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES=5
 ```
+
+> **Note:** Lavalink configuration is no longer required! BeatDock automatically fetches available Lavalink nodes from the [lavalink-list API](https://github.com/DarrenOfficial/lavalink-list) and handles failover automatically.
 
 ### 3. Deploy with Docker (Recommended)
 
 ```bash
 # Deploy slash commands to Discord
-docker compose run --rm bot npm run deploy
+docker compose run --rm beatdock npm run deploy
 
-# Start the bot and Lavalink server
+# Start the bot
 docker compose up -d
 ```
 
@@ -219,8 +207,7 @@ docker compose restart
 docker compose pull && docker compose up -d
 
 # View logs
-docker compose logs -f bot
-docker compose logs -f lavalink
+docker compose logs -f beatdock
 ```
 
 ### 🛠️ Local Development Setup
@@ -230,7 +217,6 @@ For development and testing purposes:
 #### Prerequisites
 - Node.js ≥22.16.0
 - npm ≥11.4.2
-- Local Lavalink server or Docker for Lavalink only
 
 #### Setup Steps
 
@@ -244,27 +230,15 @@ For development and testing purposes:
    # .env for local development
    TOKEN=your_discord_bot_token_here
    CLIENT_ID=your_discord_client_id_here
-   
-   # Point to local Lavalink (if running locally) or Docker Lavalink
-   LAVALINK_HOST=localhost  # or 'lavalink' for Docker
-   LAVALINK_PORT=2333
-   LAVALINK_PASSWORD=youshallnotpass
    ```
 
-3. **Start Lavalink** (choose one):
-   ```bash
-   # Option A: Use Docker for Lavalink only
-   docker compose up -d lavalink
-   
-   # Option B: Run Lavalink locally (requires Java)
-   # Download Lavalink jar and run with application.yml
-   ```
-
-4. **Deploy commands and start bot**:
+3. **Deploy commands and start bot**:
    ```bash
    npm run deploy
    npm start
    ```
+
+> **Note:** Lavalink nodes are automatically fetched from the lavalink-list API. No manual Lavalink setup required!
 
 ### 🔧 Build from Source (Alternative)
 
@@ -298,13 +272,16 @@ If you prefer to build the Docker image yourself:
 | `TOKEN` | Discord bot token from Developer Portal | `MTAx...` |
 | `CLIENT_ID` | Discord application/client ID | `123456789012345678` |
 
-#### Lavalink Configuration
+#### Automatic Lavalink Management
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LAVALINK_HOST` | `lavalink` | Lavalink server hostname |
-| `LAVALINK_PORT` | `2333` | Lavalink server port |
-| `LAVALINK_PASSWORD` | `youshallnotpass` | Lavalink server password |
+BeatDock automatically fetches and manages Lavalink nodes from the [lavalink-list API](https://github.com/DarrenOfficial/lavalink-list). No manual Lavalink configuration is required!
+
+**How it works:**
+- On startup, BeatDock fetches available Lavalink v4 nodes from the public API
+- SSL-enabled nodes are prioritized for security
+- Working nodes are cached locally in `data/lavalink-node.json`
+- If a node fails, BeatDock automatically switches to the next available node
+- The node list is refreshed periodically to ensure availability
 
 #### Optional Spotify Integration
 
@@ -336,11 +313,11 @@ If you prefer to build the Docker image yourself:
 
 **Example**: `ALLOWED_ROLES=123456789012345678,234567890123456789`
 
-#### Advanced Lavalink Settings
+#### Advanced Lavalink Reconnection Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LAVALINK_MAX_RECONNECT_ATTEMPTS` | `10` | Maximum reconnection attempts |
+| `LAVALINK_MAX_RECONNECT_ATTEMPTS` | `10` | Maximum reconnection attempts before switching nodes |
 | `LAVALINK_BASE_DELAY_MS` | `1000` | Base delay for exponential backoff |
 | `LAVALINK_MAX_DELAY_MS` | `30000` | Maximum delay for reconnection |
 | `LAVALINK_HEALTH_CHECK_INTERVAL_MS` | `30000` | Health check interval |
@@ -352,17 +329,17 @@ If you prefer to build the Docker image yourself:
 
 #### Bot doesn't respond to commands
 1. **Check Discord Intents**: Ensure all three Privileged Gateway Intents are enabled
-2. **Verify deployment**: Run `docker compose run --rm bot npm run deploy`
+2. **Verify deployment**: Run `docker compose run --rm beatdock npm run deploy`
 3. **Check permissions**: Ensure the bot has necessary Discord permissions in your server
 
 #### Music doesn't play
-1. **Lavalink connection**: Check `docker compose logs lavalink`
-2. **Voice permissions**: Bot needs Connect and Speak permissions in voice channels
-3. **Firewall**: Ensure port 2333 is accessible for Lavalink
+1. **Lavalink connection**: Check `docker compose logs beatdock` for Lavalink connection errors
+2. **Node availability**: The bot automatically switches nodes if one fails - check logs for node switching messages
+3. **Voice permissions**: Bot needs Connect and Speak permissions in voice channels
 
 #### Search command not working
-1. **YouTube access**: Ensure your server can access YouTube
-2. **Lavalink plugins**: Verify YouTube plugin is loaded in Lavalink logs
+1. **YouTube access**: Ensure your network can access YouTube
+2. **Node issues**: Some Lavalink nodes may have limited YouTube support - the bot will try other nodes
 
 #### Permission errors
 1. **Role configuration**: Check `ALLOWED_ROLES` environment variable
@@ -377,6 +354,7 @@ If you prefer to build the Docker image yourself:
 
 When reporting issues, please include:
 - Docker logs: `docker compose logs`
+- Current Lavalink node (check logs for "Selected Lavalink node")
 - Environment: Docker version, OS
 - Error messages: Full error output
 - Steps to reproduce: What you were trying to do

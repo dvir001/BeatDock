@@ -55,7 +55,7 @@ module.exports = {
             
             // Connect if not connected
             if (!player.connected) {
-                player.connect();
+                await player.connect();
             }
             
             const res = await player.search({
@@ -69,7 +69,7 @@ module.exports = {
             player.queue.add(res.loadType === "playlist" ? res.tracks : res.tracks[0]);
 
             if (!player.playing) {
-                player.play();
+                await player.play();
             }
 
             let replyContent;
