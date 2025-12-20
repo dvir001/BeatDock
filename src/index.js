@@ -104,13 +104,16 @@ client.lavalink.on("trackStart", (player, track) => {
 });
 
 client.lavalink.on("trackEnd", (player, track, reason) => {
-    if (reason === "replaced") return; // Track was replaced, new one will start
+    // reason can be an object with a 'reason' property or a string
+    const reasonStr = typeof reason === 'object' ? (reason?.reason || JSON.stringify(reason)) : String(reason);
+    
+    if (reasonStr === "replaced") return; // Track was replaced, new one will start
     
     // Log track end
     const guild = client.guilds.cache.get(player.guildId);
     const guildName = guild?.name || 'Unknown Server';
     const trackTitle = track?.info?.title || 'Unknown';
-    console.log(`[Music] Ended in "${guildName}" (${player.guildId}) | ${trackTitle} | Reason: ${reason}`);
+    console.log(`[Music] Ended in "${guildName}" (${player.guildId}) | ${trackTitle} | Reason: ${reasonStr}`);
     
     // Update player UI
     setTimeout(() => {
