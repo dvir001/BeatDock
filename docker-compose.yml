@@ -1,38 +1,8 @@
 services:
-  bot:
-    container_name: beatdock
+  beatdock:
+    container_name: BeatDock
     image: beatdock:latest
     build:
       context: .
       dockerfile: Dockerfile
-    depends_on:
-      lavalink:
-        condition: service_healthy
-    networks:
-      - beatdock-network
     env_file: .env
-
-  lavalink:
-    container_name: beatdock-lavalink
-    image: ghcr.io/lavalink-devs/lavalink:4-alpine
-    ports:
-      - "2333:2333"
-    networks:
-      - beatdock-network
-    volumes:
-      - ./application.yml:/opt/Lavalink/application.yml
-    environment:
-      - LAVALINK_PASSWORD=${LAVALINK_PASSWORD:-youshallnotpass}
-      - SPOTIFY_ENABLED=${SPOTIFY_ENABLED:-false}
-      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
-      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--header=Authorization: ${LAVALINK_PASSWORD:-youshallnotpass}", "http://localhost:2333/version"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-networks:
-  beatdock-network:
-    name: beatdock_network
