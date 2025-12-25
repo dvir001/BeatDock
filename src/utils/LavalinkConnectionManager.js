@@ -14,6 +14,7 @@ class LavalinkConnectionManager {
             periodicResetInterval: null,
             lastPing: Date.now(),
             isReconnecting: false,
+            isWaitingForReset: false, // Track if we're waiting for the 5-minute reset
             isInitialized: false,
             hasHadSuccessfulConnection: false,
             lastAuthError: false // Track if last error was auth-related
@@ -88,8 +89,11 @@ class LavalinkConnectionManager {
     // Reconnection logic - only switches nodes on auth errors
     async attemptReconnection() {
         if (this.state.isReconnecting) {
-            console.log('Reconnection already in progress, skipping...');
-            return;
+            return; // Silently skip if already reconnecting
+        }
+        
+        if (this.state.isWaitingForReset) {
+            return; // Silently skip if waiting for the reset timer
         }
 
         // Check if Lavalink manager is ready
@@ -205,16 +209,24 @@ class LavalinkConnectionManager {
             this.state.reconnectAttempts++;
             
             if (this.state.reconnectAttempts >= this.state.maxReconnectAttempts) {
-                console.warn('Max reconnection attempts reached. Will retry after 5 minutes...');
+                const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
+                console.warn(`Max reconnection attempts reached. Will retry after ${resetMinutes} minutes...`);
                 this.state.isReconnecting = false;
+                this.state.isWaitingForReset = true; // Prevent further attempts until reset
                 
                 // Reset attempts after configured period and try again
-                const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
                 const resetDelay = resetMinutes * 60 * 1000;
+                
+                // Clear any existing timer
+                if (this.state.reconnectTimer) {
+                    clearTimeout(this.state.reconnectTimer);
+                }
                 
                 this.state.reconnectTimer = setTimeout(() => {
                     this.state.reconnectAttempts = 0;
                     this.state.isReconnecting = false;
+                    this.state.isWaitingForReset = false;
+                    console.log('Retrying Lavalink connection after cooldown...');
                     this.attemptReconnection();
                 }, resetDelay);
                 
@@ -237,6 +249,7 @@ class LavalinkConnectionManager {
         this.state.reconnectAttempts = 0;
         this.state.nodeRetryAttempts = 0;
         this.state.isReconnecting = false;
+        this.state.isWaitingForReset = false; // Clear the waiting state on successful connection
         this.state.isInitialized = true;
         this.state.hasHadSuccessfulConnection = true;
         
