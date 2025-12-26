@@ -1,5 +1,8 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
+
+// Helper function for ISO 8601 timestamps
+const timestamp = () => new Date().toISOString();
 const { LavalinkManager } = require('lavalink-client');
 const LanguageManager = require('./LanguageManager');
 const PlayerController = require('./utils/PlayerController');
@@ -90,7 +93,7 @@ client.lavalink.on("trackStart", (player, track) => {
     const trackTitle = track.info?.title || 'Unknown';
     const trackAuthor = track.info?.author || 'Unknown';
     const trackUri = track.info?.uri || '';
-    console.log(`[Music] Playing in "${guildName}" (${player.guildId}) | Channel: ${player.voiceChannelId} | ${trackTitle} by ${trackAuthor} | ${trackUri}`);
+    console.log(`[${timestamp()}] [Music] Playing in "${guildName}" (${player.guildId}) | Channel: ${player.voiceChannelId} | ${trackTitle} by ${trackAuthor} | ${trackUri}`);
     
     // Update player UI
     client.playerController.updatePlayer(player.guildId);
@@ -113,7 +116,7 @@ client.lavalink.on("trackEnd", (player, track, reason) => {
     const guild = client.guilds.cache.get(player.guildId);
     const guildName = guild?.name || 'Unknown Server';
     const trackTitle = track?.info?.title || 'Unknown';
-    console.log(`[Music] Ended in "${guildName}" (${player.guildId}) | ${trackTitle} | Reason: ${reasonStr}`);
+    console.log(`[${timestamp()}] [Music] Ended in "${guildName}" (${player.guildId}) | ${trackTitle} | Reason: ${reasonStr}`);
     
     // Update player UI
     setTimeout(() => {
@@ -134,21 +137,21 @@ client.lavalink.on("trackError", (player, track, error) => {
     const guildName = guild?.name || 'Unknown Server';
     const trackTitle = track?.info?.title || 'Unknown';
     const trackUri = track?.info?.uri || '';
-    console.error(`[Music] Error in "${guildName}" (${player.guildId}) | ${trackTitle} | ${trackUri} | Error: ${error?.message || error}`);
+    console.error(`[${timestamp()}] [Music] Error in "${guildName}" (${player.guildId}) | ${trackTitle} | ${trackUri} | Error: ${error?.message || error}`);
 });
 
 client.lavalink.on("trackStuck", (player, track, threshold) => {
     const guild = client.guilds.cache.get(player.guildId);
     const guildName = guild?.name || 'Unknown Server';
     const trackTitle = track?.info?.title || 'Unknown';
-    console.warn(`[Music] Stuck in "${guildName}" (${player.guildId}) | ${trackTitle} | Threshold: ${threshold}ms`);
+    console.warn(`[${timestamp()}] [Music] Stuck in "${guildName}" (${player.guildId}) | ${trackTitle} | Threshold: ${threshold}ms`);
 });
 
 client.lavalink.on("queueEnd", (player) => {
     const guildId = player.guildId;
     const guild = client.guilds.cache.get(guildId);
     const guildName = guild?.name || 'Unknown Server';
-    console.log(`[Music] Queue ended in "${guildName}" (${guildId})`);
+    console.log(`[${timestamp()}] [Music] Queue ended in "${guildName}" (${guildId})`);
     
     const playerMessage = client.playerController.playerMessages.get(guildId);
     if (playerMessage) {
@@ -169,7 +172,7 @@ registerEvents(client);
 
 // Graceful shutdown handling
 const shutdown = async (signal) => {
-    console.log(`Received ${signal}, shutting down gracefully...`);
+    console.log(`[${timestamp()}] Received ${signal}, shutting down gracefully...`);
     
     // Cleanup connection manager
     client.lavalinkConnectionManager.destroy();

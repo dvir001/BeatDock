@@ -1,5 +1,8 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
+// Helper function for ISO 8601 timestamps
+const timestamp = () => new Date().toISOString();
+
 class PlayerController {
     constructor(client) {
         this.client = client;
@@ -114,7 +117,7 @@ class PlayerController {
             
             await message.edit({ embeds: [embed], components });
         } catch (error) {
-            console.error('Error updating player:', error);
+            console.error(`[${timestamp()}] Error updating player:`, error);
             this.playerMessages.delete(guildId);
         }
     }

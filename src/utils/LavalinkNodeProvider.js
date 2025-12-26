@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// Helper function for ISO 8601 timestamps
+const timestamp = () => new Date().toISOString();
+
 const LAVALINK_LIST_API = process.env.LAVALINK_LIST_API_URL || 'https://lavalink-list.ajieblogs.eu.org/All';
 // Use /app/data in production (Docker) or ./data relative to project root in development
 const DATA_DIR = process.env.NODE_ENV === 'production' ? '/app/data' : path.join(__dirname, '..', '..', 'data');
@@ -206,12 +209,12 @@ class LavalinkNodeProvider {
         if (this.currentNode) {
             const nodeKey = `${this.currentNode.host}:${this.currentNode.port}`;
             this.failedNodes.add(nodeKey);
-            console.log(`Lavalink node failed: ${nodeKey}`);
+            console.log(`[${timestamp()}] Lavalink node failed: ${nodeKey}`);
         }
 
         // Refresh nodes if we have none or too many failed
         if (this.nodes.length === 0 || this.failedNodes.size >= this.nodes.length) {
-            console.log('Refreshing Lavalink node list...');
+            console.log(`[${timestamp()}] Refreshing Lavalink node list...`);
             this.failedNodes.clear(); // Reset failed nodes
             this.lastFetchTime = 0; // Force refresh
             await this.fetchNodes();
@@ -225,24 +228,24 @@ class LavalinkNodeProvider {
             if (!this.failedNodes.has(nodeKey)) {
                 this.currentNode = node;
                 this.currentNodeIndex = i;
-                console.log(`Trying Lavalink node: ${nodeKey}`);
+                console.log(`[${timestamp()}] Trying Lavalink node: ${nodeKey}`);
                 return this.formatNodeConfig(node);
             }
         }
 
         // If all nodes failed, clear failed list and try again
-        console.log('All nodes failed, resetting list...');
+        console.log(`[${timestamp()}] All nodes failed, resetting list...`);
         this.failedNodes.clear();
         
         if (this.nodes.length > 0) {
             const node = this.nodes[0];
             this.currentNode = node;
             this.currentNodeIndex = 0;
-            console.log(`Retrying first node: ${node.host}:${node.port}`);
+            console.log(`[${timestamp()}] Retrying first node: ${node.host}:${node.port}`);
             return this.formatNodeConfig(node);
         }
 
-        console.error('No Lavalink nodes available');
+        console.error(`[${timestamp()}] No Lavalink nodes available`);
         return null;
     }
 
@@ -254,7 +257,7 @@ class LavalinkNodeProvider {
             const nodeKey = `${this.currentNode.host}:${this.currentNode.port}`;
             this.failedNodes.delete(nodeKey);
             this.saveNode(this.currentNode);
-            console.log(`Lavalink node connected: ${nodeKey}`);
+            console.log(`[${timestamp()}] Lavalink node connected: ${nodeKey}`);
         }
     }
 

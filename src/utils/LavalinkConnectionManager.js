@@ -1,5 +1,8 @@
 const nodeProvider = require('./LavalinkNodeProvider');
 
+// Helper function for ISO 8601 timestamps
+const timestamp = () => new Date().toISOString();
+
 class LavalinkConnectionManager {
     constructor(client) {
         this.client = client;
@@ -210,7 +213,7 @@ class LavalinkConnectionManager {
             
             if (this.state.reconnectAttempts >= this.state.maxReconnectAttempts) {
                 const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
-                console.warn(`Max reconnection attempts reached. Will retry after ${resetMinutes} minutes...`);
+                console.warn(`[${timestamp()}] Max reconnection attempts reached. Will retry after ${resetMinutes} minutes...`);
                 this.state.isReconnecting = false;
                 this.state.isWaitingForReset = true; // Prevent further attempts until reset
                 
@@ -226,7 +229,9 @@ class LavalinkConnectionManager {
                     this.state.reconnectAttempts = 0;
                     this.state.isReconnecting = false;
                     this.state.isWaitingForReset = false;
-                    console.log('Retrying Lavalink connection after cooldown...');
+                    // Force node switch after cooldown - current node is clearly broken
+                    this.state.lastAuthError = true;
+                    console.log(`[${timestamp()}] Retrying Lavalink connection after cooldown (switching node)...`);
                     this.attemptReconnection();
                 }, resetDelay);
                 
@@ -282,7 +287,7 @@ class LavalinkConnectionManager {
         const errorMsg = error?.message || error?.toString() || '';
         const errorCode = error?.code || '';
         
-        console.error(`Lavalink error: ${errorMsg}`);
+        console.error(`[${timestamp()}] Lavalink error: ${errorMsg}`);
         
         // Check for authentication errors - these should trigger node switch
         const isAuthError = errorMsg.includes('401') || 
@@ -312,7 +317,7 @@ class LavalinkConnectionManager {
         
         const reasonStr = reason?.reason || reason?.toString() || 'Unknown';
         
-        console.log(`Lavalink disconnected: ${reasonStr}`);
+        console.log(`[${timestamp()}] Lavalink disconnected: ${reasonStr}`);
         
         // Check if this was an auth-related disconnect (code 4001 is common for auth)
         const isAuthDisconnect = reason?.code === 4001 || 
@@ -387,7 +392,7 @@ class LavalinkConnectionManager {
         // Add a longer timeout to warn if Lavalink never starts
         setTimeout(() => {
             if (!this.isAvailable()) {
-                console.error('CRITICAL: Lavalink has not connected after 5 minutes!');
+                console.error(`[${timestamp()}] CRITICAL: Lavalink has not connected after 5 minutes!`);
             }
         }, 300000); // 5 minutes
     }
