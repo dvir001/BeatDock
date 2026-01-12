@@ -228,7 +228,7 @@ class LavalinkNodeProvider {
             if (!this.failedNodes.has(nodeKey)) {
                 this.currentNode = node;
                 this.currentNodeIndex = i;
-                console.log(`[${timestamp()}] Trying Lavalink node: ${nodeKey}`);
+                console.log(`[${timestamp()}] Trying Lavalink node: ${nodeKey} (secure: ${node.secure}, password: ${node.password?.substring(0, 10)}...)`);
                 return this.formatNodeConfig(node);
             }
         }

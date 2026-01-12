@@ -9,9 +9,9 @@ class LavalinkConnectionManager {
         this.nodeProvider = nodeProvider;
         this.state = {
             reconnectAttempts: 0,
-            maxReconnectAttempts: parseInt(process.env.LAVALINK_MAX_RECONNECT_ATTEMPTS || "10", 10),
+            maxReconnectAttempts: parseInt(process.env.LAVALINK_MAX_RECONNECT_ATTEMPTS || "3", 10), // Retries per node
             baseDelay: parseInt(process.env.LAVALINK_BASE_DELAY_MS || "1000", 10),
-            maxDelay: parseInt(process.env.LAVALINK_MAX_DELAY_MS || "30000", 10),
+            maxDelay: parseInt(process.env.LAVALINK_MAX_DELAY_MS || "5000", 10), // Shorter max delay between retries
             reconnectTimer: null,
             healthCheckInterval: null,
             periodicResetInterval: null,
@@ -20,7 +20,8 @@ class LavalinkConnectionManager {
             isWaitingForReset: false, // Track if we're waiting for the 5-minute reset
             isInitialized: false,
             hasHadSuccessfulConnection: false,
-            lastAuthError: false // Track if last error was auth-related
+            lastAuthError: false, // Track if last error was auth-related
+            nodesTriedThisCycle: 0 // Track how many nodes we've tried in this cycle
         };
     }
 
@@ -211,34 +212,53 @@ class LavalinkConnectionManager {
         } catch (error) {
             this.state.reconnectAttempts++;
             
+            // After max attempts on this node, switch to next node immediately
             if (this.state.reconnectAttempts >= this.state.maxReconnectAttempts) {
-                const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
-                console.warn(`[${timestamp()}] Max reconnection attempts reached. Will retry after ${resetMinutes} minutes...`);
-                this.state.isReconnecting = false;
-                this.state.isWaitingForReset = true; // Prevent further attempts until reset
+                this.state.reconnectAttempts = 0;
+                this.state.nodesTriedThisCycle++;
                 
-                // Reset attempts after configured period and try again
-                const resetDelay = resetMinutes * 60 * 1000;
+                // Get total available nodes count
+                const totalNodes = this.nodeProvider.nodes.length || 1;
                 
-                // Clear any existing timer
-                if (this.state.reconnectTimer) {
-                    clearTimeout(this.state.reconnectTimer);
+                // If we've tried all nodes, do the long cooldown
+                if (this.state.nodesTriedThisCycle >= totalNodes) {
+                    const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
+                    console.warn(`[${timestamp()}] All ${totalNodes} nodes failed. Will retry after ${resetMinutes} minutes...`);
+                    this.state.isReconnecting = false;
+                    this.state.isWaitingForReset = true;
+                    this.state.nodesTriedThisCycle = 0;
+                    
+                    const resetDelay = resetMinutes * 60 * 1000;
+                    
+                    if (this.state.reconnectTimer) {
+                        clearTimeout(this.state.reconnectTimer);
+                    }
+                    
+                    this.state.reconnectTimer = setTimeout(() => {
+                        this.state.reconnectAttempts = 0;
+                        this.state.isReconnecting = false;
+                        this.state.isWaitingForReset = false;
+                        this.state.lastAuthError = true; // Force node switch
+                        console.log(`[${timestamp()}] Retrying Lavalink connection after cooldown...`);
+                        this.attemptReconnection();
+                    }, resetDelay);
+                    
+                    return;
                 }
                 
+                // Switch to next node immediately (short delay)
+                console.log(`[${timestamp()}] Node failed after ${this.state.maxReconnectAttempts} attempts, trying next node...`);
+                this.state.lastAuthError = true; // Force node switch
+                
                 this.state.reconnectTimer = setTimeout(() => {
-                    this.state.reconnectAttempts = 0;
                     this.state.isReconnecting = false;
-                    this.state.isWaitingForReset = false;
-                    // Force node switch after cooldown - current node is clearly broken
-                    this.state.lastAuthError = true;
-                    console.log(`[${timestamp()}] Retrying Lavalink connection after cooldown (switching node)...`);
                     this.attemptReconnection();
-                }, resetDelay);
+                }, 2000); // 2 second delay before trying next node
                 
                 return;
             }
             
-            // Schedule next attempt with exponential backoff
+            // Schedule next attempt on same node with exponential backoff
             const delay = this.getReconnectDelay(this.state.reconnectAttempts);
             
             this.state.reconnectTimer = setTimeout(() => {
@@ -253,6 +273,7 @@ class LavalinkConnectionManager {
         this.state.lastPing = Date.now();
         this.state.reconnectAttempts = 0;
         this.state.nodeRetryAttempts = 0;
+        this.state.nodesTriedThisCycle = 0; // Reset node cycle counter
         this.state.isReconnecting = false;
         this.state.isWaitingForReset = false; // Clear the waiting state on successful connection
         this.state.isInitialized = true;
@@ -279,15 +300,16 @@ class LavalinkConnectionManager {
     }
 
     onError(node, error) {
-        // Don't log or handle errors during startup
-        if (!this.state.isInitialized) {
-            return;
-        }
-        
         const errorMsg = error?.message || error?.toString() || '';
         const errorCode = error?.code || '';
         
-        console.error(`[${timestamp()}] Lavalink error: ${errorMsg}`);
+        // Always log errors for debugging, but handle differently based on initialization state
+        console.error(`[${timestamp()}] Lavalink error (initialized: ${this.state.isInitialized}): ${errorMsg} (code: ${errorCode})`);
+        
+        // Don't handle errors during startup (let ready.js handle them)
+        if (!this.state.isInitialized) {
+            return;
+        }
         
         // Check for authentication errors - these should trigger node switch
         const isAuthError = errorMsg.includes('401') || 
