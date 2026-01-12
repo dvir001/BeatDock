@@ -121,7 +121,7 @@ BeatDock offers 12 comprehensive slash commands organized by category:
 
 | Command | Parameters | Description | Example |
 |---------|------------|-------------|---------|
-| `/play` | `<query>` | Play music from URL or search query | `/play Rick Astley Never Gonna Give You Up` |
+| `/play` | `<query>` `[next]` | Play music from URL or search query. Use `next` to add to front of queue | `/play Never Gonna Give You Up` |
 | `/pause` | None | Toggle pause/resume playback | `/pause` |
 | `/skip` | None | Skip to the next track | `/skip` |
 | `/back` | None | Play the previous track from history | `/back` |
