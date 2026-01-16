@@ -3,6 +3,19 @@ const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 
 // Helper function for ISO 8601 timestamps
 const timestamp = () => new Date().toISOString();
+
+// Global error handlers to prevent crashes from unhandled WebSocket errors
+process.on('uncaughtException', (error) => {
+    console.error(`[${timestamp()}] Uncaught Exception: ${error.message}`);
+    console.error(error.stack);
+    // Don't exit - let the bot continue
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error(`[${timestamp()}] Unhandled Rejection at:`, promise, 'reason:', reason);
+    // Don't exit - let the bot continue
+});
+
 const { LavalinkManager } = require('lavalink-client');
 const LanguageManager = require('./LanguageManager');
 const PlayerController = require('./utils/PlayerController');

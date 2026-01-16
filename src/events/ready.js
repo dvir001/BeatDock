@@ -133,9 +133,15 @@ function attemptConnection(client, nodeConfig, timeout) {
                 const node = client.lavalink.nodeManager.nodes.get('main-node');
                 if (node) {
                     client.lavalink.nodeManager.nodes.delete('main-node');
-                    node.destroy?.();
+                    // Use disconnect instead of destroy to avoid WebSocket errors
+                    // destroy() throws if WebSocket isn't fully connected
+                    if (typeof node.disconnect === 'function') {
+                        node.disconnect();
+                    }
                 }
-            } catch (e) {}
+            } catch (e) {
+                // Ignore cleanup errors
+            }
             reject(new Error('Connection timeout'));
         }, timeout);
         
@@ -149,14 +155,28 @@ function attemptConnection(client, nodeConfig, timeout) {
             const existingNode = client.lavalink.nodeManager.nodes.get('main-node');
             if (existingNode) {
                 client.lavalink.nodeManager.nodes.delete('main-node');
-                existingNode.destroy?.();
+                // Use disconnect instead of destroy to avoid WebSocket errors
+                if (typeof existingNode.disconnect === 'function') {
+                    existingNode.disconnect();
+                }
             }
-        } catch (e) {}
+        } catch (e) {
+            // Ignore cleanup errors
+        }
         
         // Create and connect the node
         try {
             console.log(`[${new Date().toISOString()}] Creating node with config: host=${nodeConfig.host}, port=${nodeConfig.port}, secure=${nodeConfig.secure}`);
             const node = client.lavalink.nodeManager.createNode(nodeConfig);
+            
+            // Add a temporary error handler directly on the node to prevent unhandled errors
+            const nodeErrorHandler = (err) => {
+                // This prevents unhandled error crashes during connection
+                console.error(`[${new Date().toISOString()}] Node internal error: ${err?.message || err}`);
+            };
+            if (node && typeof node.on === 'function') {
+                node.on('error', nodeErrorHandler);
+            }
             
             // The library should auto-connect, but let's make sure
             if (node && !node.connected && typeof node.connect === 'function') {
