@@ -11,6 +11,9 @@ class PlayerController {
 
     createPlayerEmbed(player, track) {
         const lang = this.client.defaultLanguage;
+        const requester = track.requester;
+        const requesterDisplay = requester ? `<@${requester.id}>` : 'Unknown';
+        
         const embed = new EmbedBuilder()
             .setColor(0x0099FF)
             .setTitle(this.client.languageManager.get(lang, 'PLAYER_TITLE'))
@@ -19,7 +22,8 @@ class PlayerController {
             .addFields(
                 { name: this.client.languageManager.get(lang, 'PLAYER_ARTIST'), value: track.info?.author || 'Unknown', inline: true },
                 { name: this.client.languageManager.get(lang, 'PLAYER_DURATION'), value: this.formatDuration(track.info?.duration || 0), inline: true },
-                { name: this.client.languageManager.get(lang, 'PLAYER_QUEUE_COUNT'), value: this.client.languageManager.get(lang, 'PLAYER_SONGS_COUNT', player.queue.tracks.length), inline: true }
+                { name: this.client.languageManager.get(lang, 'PLAYER_QUEUE_COUNT'), value: this.client.languageManager.get(lang, 'PLAYER_SONGS_COUNT', player.queue.tracks.length), inline: true },
+                { name: this.client.languageManager.get(lang, 'PLAYER_REQUESTED_BY'), value: requesterDisplay, inline: true }
             )
             .setFooter({ text: this.client.languageManager.get(lang, 'PLAYER_VOLUME', player.volume) })
             .setTimestamp();
@@ -82,7 +86,27 @@ class PlayerController {
                     .setStyle(ButtonStyle.Secondary)
             );
 
-        return [row1, row2];
+        const row3 = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('player:rewind')
+                    .setEmoji('⏪')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('player:forward')
+                    .setEmoji('⏩')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('player:voldown')
+                    .setEmoji('🔉')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('player:volup')
+                    .setEmoji('🔊')
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+        return [row1, row2, row3];
     }
 
     async sendPlayer(channel, player) {

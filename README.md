@@ -29,6 +29,7 @@
 - 🔄 **Advanced Queue Management** – Loop modes, shuffle, history navigation, and queue manipulation
 - 🔊 **Volume Control** – Per-server volume control with validation and persistence
 - ⚙️ **Automatic Lavalink Management** – Auto-discovers Lavalink nodes from [lavalink-list](https://github.com/DarrenOfficial/lavalink-list) with automatic failover
+- ⏭️ **SponsorBlock Integration** – Automatically skip intros, sponsors, and self-promotions on YouTube videos
 
 ## 🔒 Prerequisites
 
@@ -84,6 +85,10 @@ CLIENT_ID=your_discord_client_id_here
 SPOTIFY_ENABLED=false
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
+
+# Optional: SponsorBlock (skip intros, sponsors, etc.)
+SPONSORBLOCK_ENABLED=true
+SPONSORBLOCK_SEGMENTS=intro,sponsor,selfpromo,music_offtopic
 
 # Optional: Additional Settings
 DEFAULT_LANGUAGE=en

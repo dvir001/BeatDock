@@ -1,6 +1,6 @@
 services:
   beatdock:
-    container_name: BeatDock
+    container_name: beat-dock
     image: beatdock:latest
     build:
       context: .

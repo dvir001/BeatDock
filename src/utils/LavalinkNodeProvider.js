@@ -212,12 +212,18 @@ class LavalinkNodeProvider {
             console.log(`[${timestamp()}] Lavalink node failed: ${nodeKey}`);
         }
 
-        // Refresh nodes if we have none or too many failed
+        // Refresh nodes if we have none or all have failed
         if (this.nodes.length === 0 || this.failedNodes.size >= this.nodes.length) {
             console.log(`[${timestamp()}] Refreshing Lavalink node list...`);
             this.failedNodes.clear(); // Reset failed nodes
             this.lastFetchTime = 0; // Force refresh
             await this.fetchNodes();
+            
+            // If still no nodes after refresh, return null immediately
+            if (this.nodes.length === 0) {
+                console.error(`[${timestamp()}] No Lavalink nodes available after refresh`);
+                return null;
+            }
         }
 
         // Find the next available node that hasn't failed
@@ -233,8 +239,10 @@ class LavalinkNodeProvider {
             }
         }
 
-        // If all nodes failed, clear failed list and try again
-        console.log(`[${timestamp()}] All nodes failed, resetting list...`);
+        // If all nodes in the list are marked as failed (shouldn't happen after the check above, but safety)
+        // This means we just refreshed but the same nodes came back and were already marked failed
+        // Clear and try the first one
+        console.log(`[${timestamp()}] All nodes in list marked as failed, resetting...`);
         this.failedNodes.clear();
         
         if (this.nodes.length > 0) {

@@ -3,20 +3,47 @@ const isLavalinkAvailable = (client) => {
     return client.lavalinkConnectionManager.isAvailable();
 };
 
+// Check if an error is a timeout error that should trigger node switch
+const isTimeoutError = (error) => {
+    const message = error?.message || '';
+    const name = error?.name || '';
+    return name === 'TimeoutError' || 
+           message.includes('timeout') || 
+           message.includes('aborted due to timeout') ||
+           message.includes('ETIMEDOUT');
+};
+
 // Handle Lavalink connection errors consistently
 const handleLavalinkError = async (interaction, error, client) => {
     const lang = client.defaultLanguage;
+    const errorMessage = error?.message || '';
     
-    if (/No available Node|Unable to connect/.test(error.message)) {
+    // Check for timeout errors - these indicate the node is unresponsive
+    if (isTimeoutError(error)) {
+        console.warn(`[${new Date().toISOString()}] Lavalink timeout detected, triggering node switch...`);
+        // Mark node as having issues and trigger reconnection
+        if (client.lavalinkConnectionManager) {
+            client.lavalinkConnectionManager.state.lastAuthError = true; // Force node switch
+            client.lavalinkConnectionManager.attemptReconnection();
+        }
+        await interaction.editReply({ 
+            content: client.languageManager.get(lang, 'LAVALINK_TIMEOUT') || 
+                     '⏱️ The music server is not responding. Switching to another server...', 
+            ephemeral: true 
+        }).catch(() => {});
+        return;
+    }
+    
+    if (/No available Node|Unable to connect/.test(errorMessage)) {
         await interaction.editReply({ 
             content: client.languageManager.get(lang, 'LAVALINK_UNAVAILABLE'), 
             ephemeral: true 
-        });
+        }).catch(() => {});
     } else {
         await interaction.editReply({ 
             content: client.languageManager.get(lang, 'GENERIC_ERROR'), 
             ephemeral: true 
-        });
+        }).catch(() => {});
     }
 };
 
@@ -77,4 +104,5 @@ module.exports = {
     requireSameVoice,
     isLavalinkAvailable,
     handleLavalinkError,
+    isTimeoutError,
 }; 

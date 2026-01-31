@@ -86,9 +86,29 @@ client.lavalink = new LavalinkManager({
 // Initialize connection manager
 client.lavalinkConnectionManager = new LavalinkConnectionManager(client);
 
+// Track which nodes have had SponsorBlock info logged
+const sponsorBlockLoggedNodes = new Set();
+
 // Lavalink NodeManager events
 client.lavalink.nodeManager.on('connect', (node) => {
     client.lavalinkConnectionManager.onConnect(node);
+    
+    // Log SponsorBlock status once per node on connection
+    const nodeInfo = node?.info;
+    const pluginNames = nodeInfo?.plugins?.map(p => p.name) || [];
+    const hasSponsorBlockPlugin = pluginNames.includes('sponsorblock-plugin');
+    
+    if (pluginNames.length > 0) {
+        console.log(`[${timestamp()}] [SponsorBlock] Node "${node?.id}" plugins: ${pluginNames.join(', ')}`);
+    }
+    
+    if (hasSponsorBlockPlugin) {
+        const segments = (process.env.SPONSORBLOCK_SEGMENTS || 'intro,sponsor,selfpromo,music_offtopic').split(',').map(s => s.trim());
+        console.log(`[${timestamp()}] [SponsorBlock] Will skip segments: ${segments.join(', ')}`);
+        sponsorBlockLoggedNodes.add(node?.id);
+    } else {
+        console.log(`[${timestamp()}] [SponsorBlock] Plugin not available on node "${node?.id}"`);
+    }
 });
 
 client.lavalink.nodeManager.on('error', (node, error) => {
@@ -97,9 +117,10 @@ client.lavalink.nodeManager.on('error', (node, error) => {
 
 client.lavalink.nodeManager.on('disconnect', (node, reason) => {
     client.lavalinkConnectionManager.onDisconnect(node, reason);
+    sponsorBlockLoggedNodes.delete(node?.id);
 });
 
-client.lavalink.on("trackStart", (player, track) => {
+client.lavalink.on("trackStart", async (player, track) => {
     // Log track start with server and track info
     const guild = client.guilds.cache.get(player.guildId);
     const guildName = guild?.name || 'Unknown Server';
@@ -107,6 +128,26 @@ client.lavalink.on("trackStart", (player, track) => {
     const trackAuthor = track.info?.author || 'Unknown';
     const trackUri = track.info?.uri || '';
     console.log(`[${timestamp()}] [Music] Playing in "${guildName}" (${player.guildId}) | Channel: ${player.voiceChannelId} | ${trackTitle} by ${trackAuthor} | ${trackUri}`);
+    
+    // Enable SponsorBlock for YouTube tracks to skip intros, sponsors, etc.
+    const sponsorBlockEnabled = process.env.SPONSORBLOCK_ENABLED !== 'false';
+    if (sponsorBlockEnabled && track.info?.sourceName === 'youtube') {
+        // Check if the node has the SponsorBlock plugin
+        const nodeInfo = player.node?.info;
+        const pluginNames = nodeInfo?.plugins?.map(p => p.name) || [];
+        const hasSponsorBlockPlugin = pluginNames.includes('sponsorblock-plugin');
+        
+        if (hasSponsorBlockPlugin) {
+            try {
+                // Segments: intro, outro, sponsor, selfpromo, interaction, music_offtopic, preview, filler
+                const segments = (process.env.SPONSORBLOCK_SEGMENTS || 'intro,sponsor,selfpromo,music_offtopic').split(',').map(s => s.trim());
+                await player.setSponsorBlock(segments);
+            } catch (err) {
+                // SponsorBlock plugin might not be available on this node
+                console.log(`[${timestamp()}] [SponsorBlock] Error: ${err.message}`);
+            }
+        }
+    }
     
     // Update player UI
     client.playerController.updatePlayer(player.guildId);
@@ -158,6 +199,26 @@ client.lavalink.on("trackStuck", (player, track, threshold) => {
     const guildName = guild?.name || 'Unknown Server';
     const trackTitle = track?.info?.title || 'Unknown';
     console.warn(`[${timestamp()}] [Music] Stuck in "${guildName}" (${player.guildId}) | ${trackTitle} | Threshold: ${threshold}ms`);
+});
+
+// SponsorBlock events
+client.lavalink.on("SegmentSkipped", (player, track, payload) => {
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track?.info?.title || 'Unknown';
+    const category = payload?.segment?.category || 'unknown';
+    const duration = payload?.segment ? Math.round((payload.segment.end - payload.segment.start) / 1000) : 0;
+    console.log(`[${timestamp()}] [SponsorBlock] Skipped ${category} (${duration}s) in "${guildName}" | ${trackTitle}`);
+});
+
+client.lavalink.on("SegmentsLoaded", (player, track, payload) => {
+    const guild = client.guilds.cache.get(player.guildId);
+    const guildName = guild?.name || 'Unknown Server';
+    const trackTitle = track?.info?.title || 'Unknown';
+    const segmentCount = payload?.segments?.length || 0;
+    if (segmentCount > 0) {
+        console.log(`[${timestamp()}] [SponsorBlock] Loaded ${segmentCount} segment(s) for "${trackTitle}" in "${guildName}"`);
+    }
 });
 
 client.lavalink.on("queueEnd", (player) => {

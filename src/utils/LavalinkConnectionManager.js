@@ -20,8 +20,9 @@ class LavalinkConnectionManager {
             isWaitingForReset: false, // Track if we're waiting for the 5-minute reset
             isInitialized: false,
             hasHadSuccessfulConnection: false,
-            lastAuthError: false, // Track if last error was auth-related
-            nodesTriedThisCycle: 0 // Track how many nodes we've tried in this cycle
+            shouldSwitchNode: false, // Track if we should switch to next node
+            nodesTriedThisCycle: 0, // Track how many nodes we've tried in this cycle
+            totalNodesInCycle: 0 // Track total nodes at start of cycle to avoid stale comparisons
         };
     }
 
@@ -90,7 +91,7 @@ class LavalinkConnectionManager {
         }, 60 * 60 * 1000); // Check every hour
     }
 
-    // Reconnection logic - only switches nodes on auth errors
+    // Reconnection logic - switches nodes after max attempts per node
     async attemptReconnection() {
         if (this.state.isReconnecting) {
             return; // Silently skip if already reconnecting
@@ -124,24 +125,53 @@ class LavalinkConnectionManager {
                 }
             }
             
-            // Only switch to a new node if last error was auth-related
+            // Get node config - switch to new node if flagged or no current node
             let nodeConfig;
-            if (this.state.lastAuthError) {
+            if (this.state.shouldSwitchNode) {
                 nodeConfig = await this.nodeProvider.getNextNode();
-                this.state.lastAuthError = false; // Reset flag
+                this.state.shouldSwitchNode = false; // Reset flag after switching
+                // Update total nodes count when switching (in case API returned different count)
+                if (this.nodeProvider.nodes.length > 0) {
+                    this.state.totalNodesInCycle = this.nodeProvider.nodes.length;
+                }
             } else {
                 // Use current node config for regular reconnection
                 const currentNodeInfo = this.nodeProvider.getCurrentNodeInfo();
                 if (currentNodeInfo) {
                     nodeConfig = this.nodeProvider.formatNodeConfig(this.nodeProvider.currentNode);
                 } else {
-                    // No current node, get one
+                    // No current node, get one and start tracking the cycle
                     nodeConfig = await this.nodeProvider.initialize();
+                    this.state.totalNodesInCycle = this.nodeProvider.nodes.length || 1;
+                    this.state.nodesTriedThisCycle = 0;
                 }
             }
             
+            // If no nodes available at all, enter a special waiting state
+            // This is different from "all nodes tried and failed" - this means the API/cache is unavailable
             if (!nodeConfig) {
-                throw new Error('No Lavalink nodes available from provider');
+                console.error(`[${timestamp()}] No Lavalink nodes available from provider - will retry in 5 minutes`);
+                this.state.isWaitingForReset = true;
+                this.state.isReconnecting = false;
+                
+                // Clear any existing timer
+                if (this.state.reconnectTimer) {
+                    clearTimeout(this.state.reconnectTimer);
+                }
+                
+                const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
+                this.state.reconnectTimer = setTimeout(() => {
+                    console.log(`[${timestamp()}] Retrying Lavalink node fetch after cooldown...`);
+                    this.state.isWaitingForReset = false;
+                    this.state.isReconnecting = false;
+                    this.state.reconnectAttempts = 0;
+                    this.state.nodesTriedThisCycle = 0;
+                    // Force a fresh API fetch
+                    this.nodeProvider.lastFetchTime = 0;
+                    this.attemptReconnection();
+                }, resetMinutes * 60 * 1000);
+                
+                return; // Don't throw - just wait
             }
             
             // Create new node
@@ -210,48 +240,71 @@ class LavalinkConnectionManager {
             this.state.isReconnecting = false;
             
         } catch (error) {
+            // Clear any existing timer before setting a new one
+            if (this.state.reconnectTimer) {
+                clearTimeout(this.state.reconnectTimer);
+                this.state.reconnectTimer = null;
+            }
+            
+            // Log the error for debugging
+            const errorMsg = error?.message || error?.toString() || 'Unknown error';
+            console.error(`[${timestamp()}] Reconnection attempt failed: ${errorMsg}`);
+            
+            // Increment attempts (this counts attempts on the CURRENT node)
             this.state.reconnectAttempts++;
             
-            // After max attempts on this node, switch to next node immediately
+            // After max attempts on this node, switch to next node
             if (this.state.reconnectAttempts >= this.state.maxReconnectAttempts) {
                 this.state.reconnectAttempts = 0;
                 this.state.nodesTriedThisCycle++;
                 
-                // Get total available nodes count
-                const totalNodes = this.nodeProvider.nodes.length || 1;
+                // Use the total nodes count - get fresh count if we don't have one
+                const currentNodeCount = this.nodeProvider.nodes.length;
+                if (this.state.totalNodesInCycle === 0 || currentNodeCount > 0) {
+                    this.state.totalNodesInCycle = Math.max(currentNodeCount, 1);
+                }
+                const totalNodes = this.state.totalNodesInCycle;
+                
+                console.log(`[${timestamp()}] Node failed after ${this.state.maxReconnectAttempts} attempts (${this.state.nodesTriedThisCycle}/${totalNodes} nodes tried this cycle)`);
                 
                 // If we've tried all nodes, do the long cooldown
                 if (this.state.nodesTriedThisCycle >= totalNodes) {
                     const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
                     console.warn(`[${timestamp()}] All ${totalNodes} nodes failed. Will retry after ${resetMinutes} minutes...`);
-                    this.state.isReconnecting = false;
+                    
+                    // Set waiting state and clear reconnecting flag BEFORE scheduling timer
                     this.state.isWaitingForReset = true;
-                    this.state.nodesTriedThisCycle = 0;
+                    this.state.isReconnecting = false;
                     
                     const resetDelay = resetMinutes * 60 * 1000;
                     
-                    if (this.state.reconnectTimer) {
-                        clearTimeout(this.state.reconnectTimer);
-                    }
-                    
                     this.state.reconnectTimer = setTimeout(() => {
-                        this.state.reconnectAttempts = 0;
-                        this.state.isReconnecting = false;
-                        this.state.isWaitingForReset = false;
-                        this.state.lastAuthError = true; // Force node switch
                         console.log(`[${timestamp()}] Retrying Lavalink connection after cooldown...`);
+                        
+                        // Reset ALL state for a completely fresh start
+                        this.state.reconnectAttempts = 0;
+                        this.state.nodesTriedThisCycle = 0;
+                        this.state.totalNodesInCycle = 0; // Will be set when we get nodes
+                        this.state.isWaitingForReset = false;
+                        this.state.isReconnecting = false;
+                        this.state.shouldSwitchNode = false; // Don't force switch - let initialize() pick
+                        
+                        // Clear failed nodes in provider to get a completely fresh list
+                        this.nodeProvider.failedNodes.clear();
+                        this.nodeProvider.lastFetchTime = 0; // Allow API refresh
+                        this.nodeProvider.currentNode = null; // Clear current node to force fresh pick
+                        
                         this.attemptReconnection();
                     }, resetDelay);
                     
                     return;
                 }
                 
-                // Switch to next node immediately (short delay)
-                console.log(`[${timestamp()}] Node failed after ${this.state.maxReconnectAttempts} attempts, trying next node...`);
-                this.state.lastAuthError = true; // Force node switch
+                // Switch to next node (short delay)
+                this.state.shouldSwitchNode = true; // Flag to switch node on next attempt
+                this.state.isReconnecting = false;
                 
                 this.state.reconnectTimer = setTimeout(() => {
-                    this.state.isReconnecting = false;
                     this.attemptReconnection();
                 }, 2000); // 2 second delay before trying next node
                 
@@ -260,9 +313,9 @@ class LavalinkConnectionManager {
             
             // Schedule next attempt on same node with exponential backoff
             const delay = this.getReconnectDelay(this.state.reconnectAttempts);
+            this.state.isReconnecting = false;
             
             this.state.reconnectTimer = setTimeout(() => {
-                this.state.isReconnecting = false;
                 this.attemptReconnection();
             }, delay);
         }
@@ -272,10 +325,11 @@ class LavalinkConnectionManager {
     onConnect(node) {
         this.state.lastPing = Date.now();
         this.state.reconnectAttempts = 0;
-        this.state.nodeRetryAttempts = 0;
         this.state.nodesTriedThisCycle = 0; // Reset node cycle counter
+        this.state.totalNodesInCycle = 0; // Reset total nodes tracker
         this.state.isReconnecting = false;
         this.state.isWaitingForReset = false; // Clear the waiting state on successful connection
+        this.state.shouldSwitchNode = false; // Clear node switch flag
         this.state.isInitialized = true;
         this.state.hasHadSuccessfulConnection = true;
         
@@ -311,21 +365,23 @@ class LavalinkConnectionManager {
             return;
         }
         
-        // Check for authentication errors - these should trigger node switch
+        // Check for authentication errors - these should trigger immediate node switch
         const isAuthError = errorMsg.includes('401') || 
                            errorMsg.includes('403') || 
                            errorMsg.includes('Unauthorized') ||
-                           errorMsg.includes('Invalid authorization') ||
-                           errorCode === 'ECONNRESET';
+                           errorMsg.includes('Invalid authorization');
         
         if (isAuthError) {
-            this.state.lastAuthError = true;
+            // Auth errors mean this node's credentials are bad, switch immediately
+            this.state.shouldSwitchNode = true;
+            this.state.reconnectAttempts = this.state.maxReconnectAttempts; // Force node switch
         }
         
         // Only handle errors if we've had a successful connection before
         if (this.state.hasHadSuccessfulConnection) {
             // Trigger reconnection for connection-related errors
-            if (isAuthError || errorCode === 'ECONNREFUSED' || errorCode === 'ENOTFOUND' || errorMsg.includes('Unable to connect')) {
+            if (isAuthError || errorCode === 'ECONNREFUSED' || errorCode === 'ENOTFOUND' || 
+                errorCode === 'ECONNRESET' || errorMsg.includes('Unable to connect')) {
                 setTimeout(() => this.attemptReconnection(), isAuthError ? 1000 : 5000);
             }
         }
@@ -348,7 +404,9 @@ class LavalinkConnectionManager {
                                   reasonStr.includes('Invalid authorization');
         
         if (isAuthDisconnect) {
-            this.state.lastAuthError = true;
+            // Auth disconnects mean this node's credentials are bad, switch immediately
+            this.state.shouldSwitchNode = true;
+            this.state.reconnectAttempts = this.state.maxReconnectAttempts; // Force node switch
         }
         
         // Only handle disconnects if we've had a successful connection before
@@ -452,8 +510,10 @@ class LavalinkConnectionManager {
             isConnected,
             reconnectAttempts: this.state.reconnectAttempts,
             maxReconnectAttempts: this.state.maxReconnectAttempts,
-            nodeRetryAttempts: this.state.nodeRetryAttempts,
+            nodesTriedThisCycle: this.state.nodesTriedThisCycle,
+            totalNodesInCycle: this.state.totalNodesInCycle,
             isReconnecting: this.state.isReconnecting,
+            isWaitingForReset: this.state.isWaitingForReset,
             lastPing: this.state.lastPing,
             node: mainNode,
             nodeProvider: nodeStats
