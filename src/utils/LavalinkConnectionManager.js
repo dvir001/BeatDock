@@ -17,6 +17,7 @@ class LavalinkConnectionManager {
             periodicResetInterval: null,
             lastPing: Date.now(),
             isReconnecting: false,
+            reconnectingStartTime: null, // Track when reconnection started for timeout detection
             isWaitingForReset: false, // Track if we're waiting for the 5-minute reset
             isInitialized: false,
             hasHadSuccessfulConnection: false,
@@ -94,7 +95,14 @@ class LavalinkConnectionManager {
     // Reconnection logic - switches nodes after max attempts per node
     async attemptReconnection() {
         if (this.state.isReconnecting) {
-            return; // Silently skip if already reconnecting
+            // Safety timeout: if isReconnecting has been true for more than 2 minutes, reset it
+            // This prevents permanent deadlock if an exception somehow skipped the reset
+            if (this.state.reconnectingStartTime && Date.now() - this.state.reconnectingStartTime > 120000) {
+                console.warn(`[${timestamp()}] Reconnection lock timeout detected, resetting...`);
+                this.state.isReconnecting = false;
+            } else {
+                return; // Silently skip if already reconnecting
+            }
         }
         
         if (this.state.isWaitingForReset) {
@@ -107,6 +115,7 @@ class LavalinkConnectionManager {
         }
         
         this.state.isReconnecting = true;
+        this.state.reconnectingStartTime = Date.now();
         
         try {
             const mainNode = this.client.lavalink.nodeManager.nodes.get('main-node');
@@ -151,8 +160,20 @@ class LavalinkConnectionManager {
             // This is different from "all nodes tried and failed" - this means the API/cache is unavailable
             if (!nodeConfig) {
                 console.error(`[${timestamp()}] No Lavalink nodes available from provider - will retry in 5 minutes`);
+                
+                // Stop health check and periodic reset during the waiting period
+                if (this.state.healthCheckInterval) {
+                    clearInterval(this.state.healthCheckInterval);
+                    this.state.healthCheckInterval = null;
+                }
+                if (this.state.periodicResetInterval) {
+                    clearInterval(this.state.periodicResetInterval);
+                    this.state.periodicResetInterval = null;
+                }
+                
                 this.state.isWaitingForReset = true;
                 this.state.isReconnecting = false;
+                this.state.reconnectingStartTime = null;
                 
                 // Clear any existing timer
                 if (this.state.reconnectTimer) {
@@ -164,10 +185,16 @@ class LavalinkConnectionManager {
                     console.log(`[${timestamp()}] Retrying Lavalink node fetch after cooldown...`);
                     this.state.isWaitingForReset = false;
                     this.state.isReconnecting = false;
+                    this.state.reconnectingStartTime = null;
                     this.state.reconnectAttempts = 0;
                     this.state.nodesTriedThisCycle = 0;
                     // Force a fresh API fetch
                     this.nodeProvider.lastFetchTime = 0;
+                    
+                    // Restart health check after the cooldown
+                    this.startHealthCheck();
+                    this.startPeriodicReset();
+                    
                     this.attemptReconnection();
                 }, resetMinutes * 60 * 1000);
                 
@@ -238,6 +265,7 @@ class LavalinkConnectionManager {
             
             this.state.reconnectAttempts = 0;
             this.state.isReconnecting = false;
+            this.state.reconnectingStartTime = null;
             
         } catch (error) {
             // Clear any existing timer before setting a new one
@@ -272,9 +300,20 @@ class LavalinkConnectionManager {
                     const resetMinutes = parseInt(process.env.LAVALINK_RESET_ATTEMPTS_AFTER_MINUTES || "5", 10);
                     console.warn(`[${timestamp()}] All ${totalNodes} nodes failed. Will retry after ${resetMinutes} minutes...`);
                     
+                    // Stop health check and periodic reset during the waiting period
+                    if (this.state.healthCheckInterval) {
+                        clearInterval(this.state.healthCheckInterval);
+                        this.state.healthCheckInterval = null;
+                    }
+                    if (this.state.periodicResetInterval) {
+                        clearInterval(this.state.periodicResetInterval);
+                        this.state.periodicResetInterval = null;
+                    }
+                    
                     // Set waiting state and clear reconnecting flag BEFORE scheduling timer
                     this.state.isWaitingForReset = true;
                     this.state.isReconnecting = false;
+                    this.state.reconnectingStartTime = null;
                     
                     const resetDelay = resetMinutes * 60 * 1000;
                     
@@ -287,12 +326,17 @@ class LavalinkConnectionManager {
                         this.state.totalNodesInCycle = 0; // Will be set when we get nodes
                         this.state.isWaitingForReset = false;
                         this.state.isReconnecting = false;
+                        this.state.reconnectingStartTime = null;
                         this.state.shouldSwitchNode = false; // Don't force switch - let initialize() pick
                         
                         // Clear failed nodes in provider to get a completely fresh list
                         this.nodeProvider.failedNodes.clear();
                         this.nodeProvider.lastFetchTime = 0; // Allow API refresh
                         this.nodeProvider.currentNode = null; // Clear current node to force fresh pick
+                        
+                        // Restart health check after the cooldown
+                        this.startHealthCheck();
+                        this.startPeriodicReset();
                         
                         this.attemptReconnection();
                     }, resetDelay);
@@ -303,6 +347,7 @@ class LavalinkConnectionManager {
                 // Switch to next node (short delay)
                 this.state.shouldSwitchNode = true; // Flag to switch node on next attempt
                 this.state.isReconnecting = false;
+                this.state.reconnectingStartTime = null;
                 
                 this.state.reconnectTimer = setTimeout(() => {
                     this.attemptReconnection();
@@ -314,6 +359,7 @@ class LavalinkConnectionManager {
             // Schedule next attempt on same node with exponential backoff
             const delay = this.getReconnectDelay(this.state.reconnectAttempts);
             this.state.isReconnecting = false;
+            this.state.reconnectingStartTime = null;
             
             this.state.reconnectTimer = setTimeout(() => {
                 this.attemptReconnection();
@@ -328,6 +374,7 @@ class LavalinkConnectionManager {
         this.state.nodesTriedThisCycle = 0; // Reset node cycle counter
         this.state.totalNodesInCycle = 0; // Reset total nodes tracker
         this.state.isReconnecting = false;
+        this.state.reconnectingStartTime = null;
         this.state.isWaitingForReset = false; // Clear the waiting state on successful connection
         this.state.shouldSwitchNode = false; // Clear node switch flag
         this.state.isInitialized = true;
@@ -513,6 +560,7 @@ class LavalinkConnectionManager {
             nodesTriedThisCycle: this.state.nodesTriedThisCycle,
             totalNodesInCycle: this.state.totalNodesInCycle,
             isReconnecting: this.state.isReconnecting,
+            reconnectingStartTime: this.state.reconnectingStartTime,
             isWaitingForReset: this.state.isWaitingForReset,
             lastPing: this.state.lastPing,
             node: mainNode,
