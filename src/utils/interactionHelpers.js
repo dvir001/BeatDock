@@ -21,10 +21,9 @@ const handleLavalinkError = async (interaction, error, client) => {
     // Check for timeout errors - these indicate the node is unresponsive
     if (isTimeoutError(error)) {
         console.warn(`[${new Date().toISOString()}] Lavalink timeout detected, triggering node switch...`);
-        // Mark node as having issues and trigger reconnection
+        // Destroy the unresponsive node and switch to the next one
         if (client.lavalinkConnectionManager) {
-            client.lavalinkConnectionManager.state.lastAuthError = true; // Force node switch
-            client.lavalinkConnectionManager.attemptReconnection();
+            client.lavalinkConnectionManager.forceNodeSwitch();
         }
         await interaction.editReply({ 
             content: client.languageManager.get(lang, 'LAVALINK_TIMEOUT') || 

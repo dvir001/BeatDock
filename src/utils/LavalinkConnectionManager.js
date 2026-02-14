@@ -125,15 +125,6 @@ class LavalinkConnectionManager {
                 return;
             }
             
-            // Destroy existing node if it exists but is disconnected
-            if (mainNode) {
-                try {
-                    await mainNode.destroy();
-                } catch (error) {
-                    // Ignore destroy errors
-                }
-            }
-            
             // Get node config - switch to new node if flagged or no current node
             let nodeConfig;
             if (this.state.shouldSwitchNode) {
@@ -201,65 +192,95 @@ class LavalinkConnectionManager {
                 return; // Don't throw - just wait
             }
             
-            // Create new node
-            let newNode;
+            // Clean up any existing node with same ID first
             try {
-                newNode = this.client.lavalink.nodeManager.createNode(nodeConfig);
-            } catch (error) {
-                throw new Error(`Failed to create node: ${error.message}`);
+                const existingNode = this.client.lavalink.nodeManager.nodes.get('main-node');
+                if (existingNode) {
+                    this.client.lavalink.nodeManager.nodes.delete('main-node');
+                    if (typeof existingNode.disconnect === 'function') {
+                        existingNode.disconnect();
+                    }
+                }
+            } catch (e) {
+                // Ignore cleanup errors
             }
             
-            // Validate the created node
-            if (!newNode) {
-                throw new Error('Node creation failed - no node object returned');
-            }
-            
-            // Wait for connection with proper error handling
+            // Wait for connection using nodeManager events (like ready.js)
+            // lavalink-client emits events on nodeManager, not on individual nodes
             await new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    // Clean up event listeners before rejecting
-                    if (typeof newNode.off === 'function') {
-                        newNode.off('connect', onConnect);
-                        newNode.off('error', onError);
+                let resolved = false;
+                let timeoutId = null;
+                
+                const onConnect = (node) => {
+                    if (resolved) return;
+                    if (node.id === 'main-node' || node.options?.id === 'main-node') {
+                        cleanup();
+                        resolve();
+                    }
+                };
+                
+                const onError = (node, error) => {
+                    if (resolved) return;
+                    if (node.id === 'main-node' || node.options?.id === 'main-node') {
+                        cleanup();
+                        reject(error || new Error('Connection error'));
+                    }
+                };
+                
+                const cleanup = () => {
+                    resolved = true;
+                    if (timeoutId) clearTimeout(timeoutId);
+                    this.client.lavalink.nodeManager.off('connect', onConnect);
+                    this.client.lavalink.nodeManager.off('error', onError);
+                };
+                
+                // Set timeout
+                timeoutId = setTimeout(() => {
+                    if (resolved) return;
+                    cleanup();
+                    // Clean up the failed node
+                    try {
+                        const node = this.client.lavalink.nodeManager.nodes.get('main-node');
+                        if (node) {
+                            this.client.lavalink.nodeManager.nodes.delete('main-node');
+                            if (typeof node.disconnect === 'function') {
+                                node.disconnect();
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore cleanup errors
                     }
                     reject(new Error('Connection timeout'));
                 }, 15000); // 15 second timeout
                 
-                const onConnect = () => {
-                    clearTimeout(timeout);
-                    // Clean up event listeners on success
-                    if (typeof newNode.off === 'function') {
-                        newNode.off('connect', onConnect);
-                        newNode.off('error', onError);
-                    }
-                    resolve();
-                };
+                // Add listeners on nodeManager BEFORE creating node
+                this.client.lavalink.nodeManager.on('connect', onConnect);
+                this.client.lavalink.nodeManager.on('error', onError);
                 
-                const onError = (error) => {
-                    clearTimeout(timeout);
-                    // Clean up event listeners on error
-                    if (typeof newNode.off === 'function') {
-                        newNode.off('connect', onConnect);
-                        newNode.off('error', onError);
+                // Create and connect the node
+                try {
+                    const newNode = this.client.lavalink.nodeManager.createNode(nodeConfig);
+                    
+                    if (!newNode) {
+                        cleanup();
+                        reject(new Error('Node creation failed - no node object returned'));
+                        return;
                     }
-                    reject(error);
-                };
-                
-                // Check if the node has the event methods
-                if (typeof newNode.once === 'function') {
-                    newNode.once('connect', onConnect);
-                    newNode.once('error', onError);
-                } else {
-                    // If the node doesn't have event methods, wait a bit and check if it's connected
-                    setTimeout(() => {
-                        if (newNode.connected) {
-                            clearTimeout(timeout);
-                            resolve();
-                        } else {
-                            clearTimeout(timeout);
-                            reject(new Error('Node created but not connected'));
-                        }
-                    }, 2000);
+                    
+                    // Add a temporary error handler on the node to prevent unhandled errors
+                    if (newNode && typeof newNode.on === 'function') {
+                        newNode.on('error', (err) => {
+                            console.error(`[${timestamp()}] Node internal error: ${err?.message || err}`);
+                        });
+                    }
+                    
+                    // Explicitly call connect() if the node doesn't auto-connect
+                    if (newNode && !newNode.connected && typeof newNode.connect === 'function') {
+                        newNode.connect();
+                    }
+                } catch (error) {
+                    cleanup();
+                    reject(new Error(`Failed to create node: ${error.message}`));
                 }
             });
             
@@ -532,6 +553,39 @@ class LavalinkConnectionManager {
             return true;
         }
         return false;
+    }
+
+    // Force a node switch when the current node is unresponsive (e.g. HTTP timeouts)
+    // This destroys the current node even if its WebSocket appears connected,
+    // then triggers reconnection to the next available node.
+    async forceNodeSwitch() {
+        console.log(`[${timestamp()}] Forcing node switch due to unresponsive node...`);
+
+        // Cancel any pending reconnection
+        if (this.state.reconnectTimer) {
+            clearTimeout(this.state.reconnectTimer);
+            this.state.reconnectTimer = null;
+        }
+
+        // Reset reconnection lock so attemptReconnection won't bail out
+        this.state.isReconnecting = false;
+        this.state.reconnectingStartTime = null;
+
+        // Flag that we want the next node
+        this.state.shouldSwitchNode = true;
+
+        // Destroy the current node so attemptReconnection won't see it as connected
+        const mainNode = this.client.lavalink.nodeManager.nodes.get('main-node');
+        if (mainNode) {
+            try {
+                await mainNode.destroy();
+            } catch (e) {
+                // Ignore destroy errors
+            }
+        }
+
+        // Now trigger reconnection — it will pick the next node
+        this.attemptReconnection();
     }
 
     // Cleanup function

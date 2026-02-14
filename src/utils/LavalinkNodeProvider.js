@@ -5,6 +5,7 @@ const path = require('path');
 const timestamp = () => new Date().toISOString();
 
 const LAVALINK_LIST_API = process.env.LAVALINK_LIST_API_URL || 'https://lavalink-list.ajieblogs.eu.org/All';
+const LAVALINK_FALLBACK_API = 'https://raw.githubusercontent.com/DarrenOfficial/lavalink-list/master/docs/NoSSL/lavalink-without-ssl';
 // Use /app/data in production (Docker) or ./data relative to project root in development
 const DATA_DIR = process.env.NODE_ENV === 'production' ? '/app/data' : path.join(__dirname, '..', '..', 'data');
 const NODE_CACHE_FILE = path.join(DATA_DIR, 'lavalink-node.json');
@@ -97,7 +98,7 @@ class LavalinkNodeProvider {
     }
 
     /**
-     * Fetch nodes from the lavalink-list API
+     * Fetch nodes from the lavalink-list API with fallback
      * @returns {Promise<Array>} Array of available nodes
      */
     async fetchNodes() {
@@ -106,56 +107,110 @@ class LavalinkNodeProvider {
             return this.nodes.length > 0 ? this.nodes : this.loadCachedNodes();
         }
 
+        let allNodes = null;
+
+        // Try primary API
         try {
-            
             const response = await fetch(LAVALINK_LIST_API, {
                 headers: {
                     'User-Agent': 'BeatDock-Discord-Bot/2.3.0'
                 },
-                signal: AbortSignal.timeout(10000) // 10 second timeout
+                signal: AbortSignal.timeout(10000)
             });
 
             if (!response.ok) {
-                throw new Error(`API returned status ${response.status}`);
+                throw new Error(`Primary API returned status ${response.status}`);
             }
 
-            const allNodes = await response.json();
-            
-            // Filter for v4 nodes only (lavalink-client requires v4)
-            // Also prioritize SSL nodes for security
-            const v4Nodes = allNodes.filter(node => 
-                node.version === 'v4' && 
-                node.host && 
-                node.port && 
-                node.password
-            ).map(node => ({
-                ...node,
-                // Infer secure from port if not explicitly set
-                secure: node.secure === true || node.port === 443
-            }));
-
-            // Sort: SSL nodes first, then by identifier
-            v4Nodes.sort((a, b) => {
-                if (a.secure && !b.secure) return -1;
-                if (!a.secure && b.secure) return 1;
-                return 0;
-            });
-
-            this.nodes = v4Nodes;
-            this.lastFetchTime = Date.now();
-            this.saveCachedNodes(v4Nodes);
-            
-            return v4Nodes;
+            allNodes = await response.json();
+            console.log(`[${timestamp()}] Fetched ${allNodes.length} nodes from primary API`);
         } catch (error) {
-            
+            console.warn(`[${timestamp()}] Primary Lavalink API failed: ${error.message}`);
+        }
+
+        // Try fallback API if primary failed
+        if (!allNodes || allNodes.length === 0) {
+            try {
+                const response = await fetch(LAVALINK_FALLBACK_API, {
+                    headers: {
+                        'User-Agent': 'BeatDock-Discord-Bot/2.3.0'
+                    },
+                    signal: AbortSignal.timeout(10000)
+                });
+
+                if (response.ok) {
+                    const text = await response.text();
+                    // Fallback may return JSON or line-separated entries
+                    try {
+                        allNodes = JSON.parse(text);
+                        console.log(`[${timestamp()}] Fetched ${allNodes.length} nodes from fallback API`);
+                    } catch {
+                        console.warn(`[${timestamp()}] Fallback API returned non-JSON response`);
+                    }
+                }
+            } catch (error) {
+                console.warn(`[${timestamp()}] Fallback Lavalink API failed: ${error.message}`);
+            }
+        }
+
+        if (!allNodes || allNodes.length === 0) {
             // Fall back to cached nodes
             const cachedNodes = this.loadCachedNodes();
             if (cachedNodes.length > 0) {
+                console.log(`[${timestamp()}] Using ${cachedNodes.length} cached nodes`);
                 this.nodes = cachedNodes;
                 return cachedNodes;
             }
-            
             return [];
+        }
+
+        // Filter for v4 nodes only (lavalink-client requires v4)
+        // Also prioritize SSL nodes for security
+        const v4Nodes = allNodes.filter(node => 
+            node.version === 'v4' && 
+            node.host && 
+            node.port && 
+            node.password
+        ).map(node => ({
+            ...node,
+            // Infer secure from port if not explicitly set
+            secure: node.secure === true || node.port === 443
+        }));
+
+        // Sort: SSL nodes first, then by identifier
+        v4Nodes.sort((a, b) => {
+            if (a.secure && !b.secure) return -1;
+            if (!a.secure && b.secure) return 1;
+            return 0;
+        });
+
+        this.nodes = v4Nodes;
+        this.lastFetchTime = Date.now();
+        this.saveCachedNodes(v4Nodes);
+        
+        console.log(`[${timestamp()}] ${v4Nodes.length} v4 Lavalink nodes available`);
+        return v4Nodes;
+    }
+
+    /**
+     * Quick HTTP health check to verify a node is reachable before attempting WebSocket connection
+     * @param {Object} node Raw node from API
+     * @returns {Promise<boolean>} true if the node responds to HTTP
+     */
+    async checkNodeHealth(node) {
+        try {
+            const protocol = node.secure ? 'https' : 'http';
+            const url = `${protocol}://${node.host}:${node.port}/version`;
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': node.password
+                },
+                signal: AbortSignal.timeout(5000) // 5 second timeout
+            });
+            return response.ok || response.status === 401 || response.status === 403;
+            // 401/403 means the node is alive but credentials may differ - still worth trying WebSocket
+        } catch {
+            return false;
         }
     }
 
@@ -227,11 +282,20 @@ class LavalinkNodeProvider {
         }
 
         // Find the next available node that hasn't failed
+        // Use HTTP health check to skip obviously dead nodes
         for (let i = 0; i < this.nodes.length; i++) {
             const node = this.nodes[i];
             const nodeKey = `${node.host}:${node.port}`;
             
             if (!this.failedNodes.has(nodeKey)) {
+                // Quick health check - skip nodes that don't respond to HTTP at all
+                const isHealthy = await this.checkNodeHealth(node);
+                if (!isHealthy) {
+                    console.log(`[${timestamp()}] Skipping unhealthy node: ${nodeKey} (HTTP health check failed)`);
+                    this.failedNodes.add(nodeKey);
+                    continue;
+                }
+                
                 this.currentNode = node;
                 this.currentNodeIndex = i;
                 console.log(`[${timestamp()}] Trying Lavalink node: ${nodeKey} (secure: ${node.secure}, password: ${node.password?.substring(0, 10)}...)`);
