@@ -254,8 +254,16 @@ const shutdown = async (signal) => {
     // Clear cleanup interval
     searchSessions.destroy();
     
-    // Destroy Lavalink nodes
+    // Destroy Lavalink nodes (clear heartbeat intervals first)
     for (const node of client.lavalink.nodeManager.nodes.values()) {
+        if (node.heartBeatInterval) {
+            clearInterval(node.heartBeatInterval);
+            node.heartBeatInterval = null;
+        }
+        if (node.pingTimeout) {
+            clearTimeout(node.pingTimeout);
+            node.pingTimeout = null;
+        }
         await node.destroy();
     }
     

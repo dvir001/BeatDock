@@ -132,11 +132,22 @@ function attemptConnection(client, nodeConfig, timeout) {
             try {
                 const node = client.lavalink.nodeManager.nodes.get('main-node');
                 if (node) {
-                    client.lavalink.nodeManager.nodes.delete('main-node');
-                    // Use disconnect instead of destroy to avoid WebSocket errors
-                    // destroy() throws if WebSocket isn't fully connected
-                    if (typeof node.disconnect === 'function') {
-                        node.disconnect();
+                    // Clear lingering heartbeat intervals to prevent log spam
+                    if (node.heartBeatInterval) {
+                        clearInterval(node.heartBeatInterval);
+                        node.heartBeatInterval = null;
+                    }
+                    if (node.pingTimeout) {
+                        clearTimeout(node.pingTimeout);
+                        node.pingTimeout = null;
+                    }
+                    if (typeof node.destroy === 'function') {
+                        node.destroy('BeatDock-Timeout', true);
+                    } else {
+                        client.lavalink.nodeManager.nodes.delete('main-node');
+                        if (typeof node.disconnect === 'function') {
+                            node.disconnect();
+                        }
                     }
                 }
             } catch (e) {
@@ -154,10 +165,22 @@ function attemptConnection(client, nodeConfig, timeout) {
         try {
             const existingNode = client.lavalink.nodeManager.nodes.get('main-node');
             if (existingNode) {
-                client.lavalink.nodeManager.nodes.delete('main-node');
-                // Use disconnect instead of destroy to avoid WebSocket errors
-                if (typeof existingNode.disconnect === 'function') {
-                    existingNode.disconnect();
+                // Clear lingering heartbeat intervals to prevent log spam
+                if (existingNode.heartBeatInterval) {
+                    clearInterval(existingNode.heartBeatInterval);
+                    existingNode.heartBeatInterval = null;
+                }
+                if (existingNode.pingTimeout) {
+                    clearTimeout(existingNode.pingTimeout);
+                    existingNode.pingTimeout = null;
+                }
+                if (typeof existingNode.destroy === 'function') {
+                    existingNode.destroy('BeatDock-Reconnect', true);
+                } else {
+                    client.lavalink.nodeManager.nodes.delete('main-node');
+                    if (typeof existingNode.disconnect === 'function') {
+                        existingNode.disconnect();
+                    }
                 }
             }
         } catch (e) {

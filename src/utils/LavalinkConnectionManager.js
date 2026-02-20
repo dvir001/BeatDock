@@ -196,9 +196,23 @@ class LavalinkConnectionManager {
             try {
                 const existingNode = this.client.lavalink.nodeManager.nodes.get('main-node');
                 if (existingNode) {
-                    this.client.lavalink.nodeManager.nodes.delete('main-node');
-                    if (typeof existingNode.disconnect === 'function') {
-                        existingNode.disconnect();
+                    // Clear any lingering heartbeat/ping intervals (private in TS, accessible in JS)
+                    if (existingNode.heartBeatInterval) {
+                        clearInterval(existingNode.heartBeatInterval);
+                        existingNode.heartBeatInterval = null;
+                    }
+                    if (existingNode.pingTimeout) {
+                        clearTimeout(existingNode.pingTimeout);
+                        existingNode.pingTimeout = null;
+                    }
+                    // Use destroy() for thorough cleanup (clears socket, listeners, etc.)
+                    if (typeof existingNode.destroy === 'function') {
+                        existingNode.destroy('BeatDock-Reconnect', true);
+                    } else {
+                        this.client.lavalink.nodeManager.nodes.delete('main-node');
+                        if (typeof existingNode.disconnect === 'function') {
+                            existingNode.disconnect();
+                        }
                     }
                 }
             } catch (e) {
@@ -242,9 +256,22 @@ class LavalinkConnectionManager {
                     try {
                         const node = this.client.lavalink.nodeManager.nodes.get('main-node');
                         if (node) {
-                            this.client.lavalink.nodeManager.nodes.delete('main-node');
-                            if (typeof node.disconnect === 'function') {
-                                node.disconnect();
+                            // Clear lingering heartbeat intervals
+                            if (node.heartBeatInterval) {
+                                clearInterval(node.heartBeatInterval);
+                                node.heartBeatInterval = null;
+                            }
+                            if (node.pingTimeout) {
+                                clearTimeout(node.pingTimeout);
+                                node.pingTimeout = null;
+                            }
+                            if (typeof node.destroy === 'function') {
+                                node.destroy('BeatDock-Timeout', true);
+                            } else {
+                                this.client.lavalink.nodeManager.nodes.delete('main-node');
+                                if (typeof node.disconnect === 'function') {
+                                    node.disconnect();
+                                }
                             }
                         }
                     } catch (e) {
@@ -465,6 +492,18 @@ class LavalinkConnectionManager {
         
         console.log(`[${timestamp()}] Lavalink disconnected: ${reasonStr}`);
         
+        // Clear lingering heartbeat intervals to prevent log spam
+        if (node) {
+            if (node.heartBeatInterval) {
+                clearInterval(node.heartBeatInterval);
+                node.heartBeatInterval = null;
+            }
+            if (node.pingTimeout) {
+                clearTimeout(node.pingTimeout);
+                node.pingTimeout = null;
+            }
+        }
+        
         // Check if this was an auth-related disconnect (code 4001 is common for auth)
         const isAuthDisconnect = reason?.code === 4001 || 
                                   reason?.code === 4003 ||
@@ -578,7 +617,16 @@ class LavalinkConnectionManager {
         const mainNode = this.client.lavalink.nodeManager.nodes.get('main-node');
         if (mainNode) {
             try {
-                await mainNode.destroy();
+                // Clear lingering heartbeat intervals
+                if (mainNode.heartBeatInterval) {
+                    clearInterval(mainNode.heartBeatInterval);
+                    mainNode.heartBeatInterval = null;
+                }
+                if (mainNode.pingTimeout) {
+                    clearTimeout(mainNode.pingTimeout);
+                    mainNode.pingTimeout = null;
+                }
+                await mainNode.destroy('BeatDock-ForceSwitch', true);
             } catch (e) {
                 // Ignore destroy errors
             }

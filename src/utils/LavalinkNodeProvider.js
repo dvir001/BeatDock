@@ -229,8 +229,11 @@ class LavalinkNodeProvider {
             authorization: node.password,
             secure: secure,
             id: 'main-node',
-            retryAmount: 1,  // Don't retry during fast startup
+            retryAmount: 0,  // Disable library auto-reconnect; BeatDock handles reconnection
             retryDelay: 1000,
+            heartBeatInterval: 0, // Disable library heartbeat; BeatDock has its own health checks
+            enablePingOnStatsCheck: true, // Keep stats-based ping detection
+            closeOnError: true,
         };
         
         return config;
